@@ -1,0 +1,11 @@
+torch
+torchvision
+torchaudio
+opencv-python
+tqdm
+ipdb
+PyYAML
+matplotlib
+pandas
+seaborn
+thop
