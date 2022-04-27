@@ -238,11 +238,13 @@ def detect_batch(model,
         landmark = (det[:,5:15]/all_scale[i]).round()
 
         for j in range(det.size()[0]):
-            xywh = (xyxy2xywh(bbox[j].view(1, 4))).view(-1).tolist()
-            conf = conf[j].cpu().numpy()
+            x1,y1, x2,y2 = list(map(int,bbox[j,:].tolist()))
+            cv2.rectangle(image, (x1,y1), (x2,y2), (0,255,0), 2)
             landmarks = (landmark[j].view(1, 10)).view(-1).tolist()
-            class_num = det[j, 15].cpu().numpy()
-            image = show_results(image, xywh, conf, landmarks, class_num)
+            for k in range(0,10,2):
+                cv2.circle(image, (int(landmarks[k]),int(landmarks[k+1])), 1, (0,0,255), 2)
+            # class_num = det[j, 15].cpu().numpy()
+            # import ipdb; ipdb.set_trace()
             cv2.imwrite(f'./DEBUG/{time.time()}.jpg', image)
         output_list.append(image)
 
@@ -265,7 +267,7 @@ if __name__ == '__main__':
     import tqdm
 
     for path in tqdm.tqdm(all_image_path):
-        image = cv2.imread('/Users/miles/Techainer/face_detection/yolov5-face/data/images/test.jpg')
+        image = cv2.imread(path)
         # rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         if len(list_batch)==4:
             output_list = detect_batch(model,list_batch, device)
