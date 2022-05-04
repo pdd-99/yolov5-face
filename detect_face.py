@@ -79,7 +79,6 @@ def preprocess_batch(images,
 
         image_size_dict = {}
         for idx, image in enumerate(images):
-            print(image.shape)
             height, width, _ = image.shape
             _size = f"{height}x{width}"
             if _size not in image_size_dict:
@@ -95,7 +94,6 @@ def preprocess_batch(images,
             batch = torch.stack([images[idx] for idx in image_size_dict[key]]).to(device).permute(0, 3, 1, 2).float()
             if target_size != -1:
                 if max(image_height, image_width) > target_size:
-                    print(image.shape)
                     if image_height >= image_width:
                         scale = target_size / image_height
                         new_height = target_size
@@ -151,8 +149,8 @@ def preprocess_batch(images,
 
 def detect_one(model, orgimg, device):
     # Load model
-    img_size = 640
-    conf_thres = 0.7
+    img_size = 1920
+    conf_thres = 0.3
     iou_thres = 0.5
 
     # orgimg = cv2.imread(image_path)  # BGR
@@ -215,8 +213,8 @@ def detect_one(model, orgimg, device):
 
 def detect_batch(model,
                 list_image, device):
-    img_size = 640
-    conf_thres = 0.7
+    img_size = 1920
+    conf_thres = 0.3
     iou_thres = 0.5
 
     output_list = []
@@ -232,7 +230,6 @@ def detect_batch(model,
     output_list = []
     for i, image in enumerate(list_image):  # detections per image
         det = pred[i]
-        print(det)
         bbox = (det[:,:4]/all_scale[i]).round()
         conf = det[:,4]
         landmark = (det[:,5:15]/all_scale[i]).round()
@@ -245,14 +242,14 @@ def detect_batch(model,
                 cv2.circle(image, (int(landmarks[k]),int(landmarks[k+1])), 1, (0,0,255), 2)
             # class_num = det[j, 15].cpu().numpy()
             # import ipdb; ipdb.set_trace()
-            cv2.imwrite(f'./DEBUG/{time.time()}.jpg', image)
+        cv2.imwrite(f'./DEBUG/{time.time()}.jpg', image)
         output_list.append(image)
 
     return output_list
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default='/Users/miles/Downloads/yolov5n-0.5.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', nargs='+', type=str, default='/mnt/ssd/miles/face_detection/gen_data/weight/yolov5n-0.5.pt', help='model.pt path(s)')
     parser.add_argument('--image', type=str, default='data/images/test.jpg', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     opt = parser.parse_args()
@@ -266,12 +263,9 @@ if __name__ == '__main__':
     output_list =[]
     import tqdm
 
+    all_image_path = ['/mnt/ssd/miles/face_detection/yolov5-face/data/images/test.jpg']
     for path in tqdm.tqdm(all_image_path):
         image = cv2.imread(path)
-        # rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        if len(list_batch)==4:
-            output_list = detect_batch(model,list_batch, device)
-            for image in output_list:
-                cv2.imwrite(f'./DEBUG/{time.time()}.jpg', image)
-            list_batch = []
-        list_batch.append(image)
+        output_list = detect_batch(model,[image], device)
+        # for image in output_list:
+        #     cv2.imwrite(f'./DEBUG/{time.time()}.jpg', image)
