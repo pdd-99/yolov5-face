@@ -9,17 +9,23 @@ from itertools import repeat
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from threading import Thread
+from turtle import width
 
 import cv2
+import imgaug as ia
+import imgaug.augmenters as iaa
+import imgaug.parameters as iap
 import numpy as np
 import torch
-from PIL import Image, ExifTags
+from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
+from imgaug.augmentables.kps import Keypoint, KeypointsOnImage
+from PIL import ExifTags, Image
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from utils.general import xyxy2xywh, xywh2xyxy, clean_str
+from utils.augmenter import augmenter
+from utils.general import clean_str, xywh2xyxy, xyxy2xywh
 from utils.torch_utils import torch_distributed_zero_first
-
 
 # Parameters
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
@@ -125,6 +131,8 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
         self.mosaic_border = [-img_size // 2, -img_size // 2]
         self.stride = stride
 
+        # iaa augmenter
+        self.augmenter = augmenter
         try:
             f = []  # image files
             for p in path if isinstance(path, list) else [path]:
@@ -231,6 +239,15 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
                     nf += 1  # label found
                     with open(lb_file, 'r') as f:
                         l = np.array([x.split() for x in f.read().strip().splitlines()], dtype=np.float32)  # labels
+                        
+                        # Remove all the face with width and heigh < 5*5.
+                        new_l = []
+                        for j, x in enumerate(l):
+                            if x[3]< 5 and x[4]<5:
+                                new_l.append(x)
+                        l = np.array(new_l)
+
+
                     if len(l):
                         assert l.shape[1] == 15, 'labels require 15 columns each'
                         assert (l >= -1).all(), 'negative labels'
@@ -262,12 +279,6 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
     def __len__(self):
         return len(self.img_files)
 
-    # def __iter__(self):
-    #     self.count = -1
-    #     print('ran dataset iter')
-    #     #self.shuffled_vector = np.random.permutation(self.nF) if self.augment else np.arange(self.nF)
-    #     return self
-
     def __getitem__(self, index):
         index = self.indices[index]  # linear, shuffled, or image_weights
 
@@ -288,15 +299,38 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
         else:
             # Load image
             img, (h0, w0), (h, w) = load_image(self, index)
+            x = self.labels[index]
+            # tmp_label = x.copy()
+            # tmp_label[:, 1] = w * (x[:, 1] - x[:, 3] / 2)
+            # tmp_label[:, 2] = h * (x[:, 2] - x[:, 4] / 2)
+            # tmp_label[:, 3] = w * (x[:, 1] + x[:, 3] / 2)
+            # tmp_label[:, 4] = h * (x[:, 2] + x[:, 4] / 2)
+            # tmp_label[:, 5] = np.array(x[:, 5] > 0, dtype=np.int32) * (w * x[:, 5]) + (np.array(x[:, 5] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 6] = np.array(x[:, 6] > 0, dtype=np.int32) * (h * x[:, 6]) + (np.array(x[:, 6] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 7] = np.array(x[:, 7] > 0, dtype=np.int32) * (w * x[:, 7]) + (np.array(x[:, 7] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 8] = np.array(x[:, 8] > 0, dtype=np.int32) * (h * x[:, 8]) + (np.array(x[:, 8] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 9] = np.array(x[:, 9] > 0, dtype=np.int32) * (w * x[:, 9]) + (np.array(x[:, 9] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 10] = np.array(x[:, 10] > 0, dtype=np.int32) * (h * x[:, 10]) + (np.array(x[:, 10] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 11] = np.array(x[:, 11] > 0, dtype=np.int32) * (w * x[:, 11]) + (np.array(x[:, 11] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 12] = np.array(x[:, 12] > 0, dtype=np.int32) * (h * x[:, 12]) + (np.array(x[:, 12] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 13] = np.array(x[:, 13] > 0, dtype=np.int32) * (w * x[:, 13]) + (np.array(x[:, 13] > 0, dtype=np.int32) - 1)
+            # tmp_label[:, 14] = np.array(x[:, 14] > 0, dtype=np.int32) * (h * x[:, 14]) + (np.array(x[:, 14] > 0, dtype=np.int32) - 1)
+            
+            # bbox = tmp_label[:,1:5]
+            # landmark = tmp_label[:,5:]
+            # imgaug_bbox = self.parse_boundingbox(boxes = bbox, image=img)
+            # imgaug_landmark = self.parse_keypoint(keypoints = landmark, image=img)
+            # img, boxes, landm = self.augmenter(image=img, bounding_boxes=imgaug_bbox, keypoints=imgaug_landmark)
 
+            # boxes = self.decode_boundingbox(boxes)
+            # landm = self.decode_landmark(landm)
+            # showlabels(img, tmp_label)
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
             img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
-
-            # Load labels
+            
             labels = []
-            x = self.labels[index]
             if x.size > 0:
                 # Normalized xywh to pixel xyxy format
                 labels = x.copy()
@@ -328,6 +362,16 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
                     np.array(x[:, 14] > 0, dtype=np.int32) - 1)
 
         if self.augment:
+            bbox = labels[:,1:5]
+            landmark = labels[:,5:]
+            imgaug_bbox = self.parse_boundingbox(boxes = bbox, image=img)
+            imgaug_landmark = self.parse_keypoint(keypoints = landmark, image=img)
+            img, boxes, landm = self.augmenter(image=img, bounding_boxes=imgaug_bbox, keypoints=imgaug_landmark)
+
+            boxes = self.decode_boundingbox(boxes)
+            landm = self.decode_landmark(landm)
+            labels = np.concatenate((labels[:,0:1], boxes, landm), axis=1)
+
             # Augment imagespace
             if not mosaic:
                 img, labels = random_perspective(img, labels,
@@ -340,9 +384,7 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
             # Augment colorspace
             augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
 
-            # Apply cutouts
-            # if random.random() < 0.9:
-            #     labels = cutout(img, labels)
+            
 
         nL = len(labels)  # number of labels
         if nL:
@@ -355,38 +397,10 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
             labels[:, [6, 8, 10, 12, 14]] /= img.shape[0]  # normalized landmark y 0-1
             labels[:, [6, 8, 10, 12, 14]] = np.where(labels[:, [6, 8, 10, 12, 14]] < 0, -1, labels[:, [6, 8, 10, 12, 14]])
 
-        if self.augment:
-            # flip up-down
-            if random.random() < hyp['flipud']:
-                img = np.flipud(img)
-                if nL:
-                    labels[:, 2] = 1 - labels[:, 2]
+        if self.augment:  # augment imagespace
+            h, w = img.shape[:2]
 
-                    labels[:, 6] = np.where(labels[:,6] < 0, -1, 1 - labels[:, 6])
-                    labels[:, 8] = np.where(labels[:, 8] < 0, -1, 1 - labels[:, 8])
-                    labels[:, 10] = np.where(labels[:, 10] < 0, -1, 1 - labels[:, 10])
-                    labels[:, 12] = np.where(labels[:, 12] < 0, -1, 1 - labels[:, 12])
-                    labels[:, 14] = np.where(labels[:, 14] < 0, -1, 1 - labels[:, 14])
 
-            # flip left-right
-            if random.random() < hyp['fliplr']:
-                img = np.fliplr(img)
-                if nL:
-                    labels[:, 1] = 1 - labels[:, 1]
-
-                    labels[:, 5] = np.where(labels[:, 5] < 0, -1, 1 - labels[:, 5])
-                    labels[:, 7] = np.where(labels[:, 7] < 0, -1, 1 - labels[:, 7])
-                    labels[:, 9] = np.where(labels[:, 9] < 0, -1, 1 - labels[:, 9])
-                    labels[:, 11] = np.where(labels[:, 11] < 0, -1, 1 - labels[:, 11])
-                    labels[:, 13] = np.where(labels[:, 13] < 0, -1, 1 - labels[:, 13])
-
-                    #左右镜像的时候，左眼、右眼，　左嘴角、右嘴角无法区分, 应该交换位置，便于网络学习
-                    eye_left = np.copy(labels[:, [5, 6]])
-                    mouth_left = np.copy(labels[:, [11, 12]])
-                    labels[:, [5, 6]] = labels[:, [7, 8]]
-                    labels[:, [7, 8]] = eye_left
-                    labels[:, [11, 12]] = labels[:, [13, 14]]
-                    labels[:, [13, 14]] = mouth_left
 
         labels_out = torch.zeros((nL, 16))
         if nL:
@@ -401,6 +415,52 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
             #print( ' : landmarks : ', torch.max(labels_out[:, 5:15]), '  ---   ', torch.min(labels_out[:, 5:15]))
         return torch.from_numpy(img), labels_out, self.img_files[index], shapes
 
+    def parse_keypoint(self, keypoints, image):
+        """
+        :param keypoints: [N, 17, 3]
+        :param image: [H, W, 3]
+        :return:
+        """
+        keypoints_t = keypoints.copy()
+        keypoints_t = keypoints_t.tolist()
+
+        all_keypoints =[]
+        for elem in keypoints_t:
+            for index in range(0,10, 2):
+                all_keypoints.append(Keypoint(elem[index], elem[index+1]))
+        
+        all_keypoints = KeypointsOnImage(all_keypoints, shape=image.shape)
+        return all_keypoints
+
+    def parse_boundingbox(self, boxes, image):
+        all_bbox = boxes.copy()
+        all_bbox = all_bbox.tolist()
+
+        all_boundingbox =[]
+        for elem in all_bbox:
+            all_boundingbox.append(BoundingBox(elem[0], elem[1], elem[2], elem[3]))
+        
+        all_boundingbox = BoundingBoxesOnImage(all_boundingbox, shape=image.shape)
+        return all_boundingbox
+
+    def decode_landmark(self, all_point):
+        all_point_list = []
+        tmp =[]
+        for point in all_point.keypoints:
+            tmp.extend([point.x, point.y])
+            if len(tmp) == 10:
+                all_point_list.append(tmp)
+                tmp = []
+        
+        return np.array(all_point_list)
+
+    def decode_boundingbox(self, all_bbox):
+        all_bbox_list = []
+        for bbox in all_bbox.bounding_boxes:
+            all_bbox_list.append([bbox.x1, bbox.y1, bbox.x2, bbox.y2])
+        
+        return np.array(all_bbox_list)
+
     @staticmethod
     def collate_fn(batch):
         img, label, path, shapes = zip(*batch)  # transposed
@@ -409,18 +469,19 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
         return torch.stack(img, 0), torch.cat(label, 0), path, shapes
 
 
-def showlabels(img, boxs, landmarks):
+def showlabels(img, label):
+    boxs = label[:,1:5]
+    landmarks = label[:,5:]
     for box in boxs:
-        x,y,w,h = box[0] * img.shape[1], box[1] * img.shape[0], box[2] * img.shape[1], box[3] * img.shape[0]
-        #cv2.rectangle(image, (x,y), (x+w,y+h), (0,255,0), 2)
-        cv2.rectangle(img, (int(x - w/2), int(y - h/2)), (int(x + w/2), int(y + h/2)), (0, 255, 0), 2)
+        x,y,x1,y1 = box
+        cv2.rectangle(img, (int(x),int(y)), (int(x1),int(y1)), (0,255,0), 2)
+        # cv2.rectangle(img, (int(x - w/2), int(y - h/2)), (int(x + w/2), int(y + h/2)), (0, 255, 0), 2)
 
     for landmark in landmarks:
-        #cv2.circle(img,(60,60),30,(0,0,255))
-        for i in range(5):
-            cv2.circle(img, (int(landmark[2*i] * img.shape[1]), int(landmark[2*i+1]*img.shape[0])), 3 ,(0,0,255), -1)
-    cv2.imshow('test', img)
-    cv2.waitKey(0)
+        print(landmark)
+        for i in range(0,10,2):
+            cv2.circle(img, (int(landmark[i]), int(landmark[i+1])), 3 ,(0,0,255), -1)
+    cv2.imwrite(f'./DEBUG/{time.time()}.jpg', img)
 
 
 def load_mosaic_face(self, index):
@@ -541,11 +602,6 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
 
     img_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val))).astype(dtype)
     cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
-
-    # Histogram equalization
-    # if random.random() < 0.2:
-    #     for i in range(3):
-    #         img[:, :, i] = cv2.equalizeHist(img[:, :, i])
 
 def replicate(img, labels):
     # Replicate labels
