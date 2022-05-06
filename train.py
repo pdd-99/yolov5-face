@@ -33,7 +33,7 @@ from utils.google_utils import attempt_download
 from utils.loss import compute_loss
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first
-
+from clearml import Task
 logger = logging.getLogger(__name__)
 
 try:
@@ -183,44 +183,21 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if cuda and rank != -1:
         model = DDP(model, device_ids=[opt.local_rank], output_device=opt.local_rank)
 
-    # Trainloader
-    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
-                                            hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
-                                            world_size=opt.world_size, workers=opt.workers,
-                                            image_weights=opt.image_weights)
-    mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
-    nb = len(dataloader)  # number of batches
-    assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
-
-    # Process 0
-    if rank in [-1, 0]:
-        ema.updates = start_epoch * nb // accumulate  # set EMA updates
-        testloader = create_dataloader(test_path, imgsz_test, total_batch_size, gs, opt,  # testloader
-                                       hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True,
-                                       rank=-1, world_size=opt.world_size, workers=opt.workers, pad=0.5)[0]
-
-        if not opt.resume:
-            labels = np.concatenate(dataset.labels, 0)
-            c = torch.tensor(labels[:, 0])  # classes
-            # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
-            # model._initialize_biases(cf.to(device))
-            if plots:
-                plot_labels(labels, save_dir, loggers)
-                if tb_writer:
-                    tb_writer.add_histogram('classes', c, 0)
-
-            # Anchors
-            if not opt.noautoanchor:
-                check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
-
+    
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
     model.nc = nc  # attach number of classes to model
     model.hyp = hyp  # attach hyperparameters to model
     model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
-    model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
+    
     model.names = names
 
+    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
+                                                hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
+                                                world_size=opt.world_size, workers=opt.workers,
+                                                image_weights=opt.image_weights)
+    nb = len(dataloader)  # number of batches
+    
     # Start training
     t0 = time.time()
     nw = max(round(hyp['warmup_epochs'] * nb), 1000)  # number of warmup iterations, max(3 epochs, 1k iterations)
@@ -233,6 +210,38 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 'Using %g dataloader workers\nLogging results to %s\n'
                 'Starting training for %g epochs...' % (imgsz, imgsz_test, dataloader.num_workers, save_dir, epochs))
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
+        # Trainloader
+        imgsz = random.choice([480, 640, 720, 1080])  # imgsz = random.choice([320, 384, 448, 512, 608, 640, 720, 768, 896, 1080])
+        dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
+                                                hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
+                                                world_size=opt.world_size, workers=opt.workers,
+                                                image_weights=opt.image_weights)
+        mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
+        nb = len(dataloader)  # number of batches
+        assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
+
+        # Process 0
+        if rank in [-1, 0]:
+            ema.updates = start_epoch * nb // accumulate  # set EMA updates
+            testloader = create_dataloader(test_path, imgsz, total_batch_size, gs, opt,  # testloader
+                                        hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True,
+                                        rank=-1, world_size=opt.world_size, workers=opt.workers, pad=0.5)[0]
+
+            if not opt.resume:
+                labels = np.concatenate(dataset.labels, 0)
+                c = torch.tensor(labels[:, 0])  # classes
+                # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
+                # model._initialize_biases(cf.to(device))
+                if plots:
+                    plot_labels(labels, save_dir, loggers)
+                    if tb_writer:
+                        tb_writer.add_histogram('classes', c, 0)
+
+                # Anchors
+                if not opt.noautoanchor:
+                    check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
+        model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
+            
         model.train()
 
         # Update image weights (optional)
@@ -458,8 +467,10 @@ if __name__ == '__main__':
     parser.add_argument('--project', default='runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--project_name', default='face_detection', help='name of the project')
+    parser.add_argument('--task_name', action='yolov5_face_add_augment', help='clearml task name')
     opt = parser.parse_args()
-
+    task = Task.init(project_name=opt.project_name, task_name=opt.task_name)
     # Set DDP variables
     opt.total_batch_size = opt.batch_size
     opt.world_size = int(os.environ['WORLD_SIZE']) if 'WORLD_SIZE' in os.environ else 1
