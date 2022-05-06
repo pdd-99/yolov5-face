@@ -183,6 +183,36 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if cuda and rank != -1:
         model = DDP(model, device_ids=[opt.local_rank], output_device=opt.local_rank)
 
+    # Trainloader
+    # imgsz = random.choice([480, 640, 720, 1080])  # imgsz = random.choice([320, 384, 448, 512, 608, 640, 720, 768, 896, 1080])
+    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
+                                                hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
+                                                world_size=opt.world_size, workers=opt.workers,
+                                                image_weights=opt.image_weights)
+    mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
+    nb = len(dataloader)  # number of batches
+    assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
+
+    # Process 0
+    if rank in [-1, 0]:
+        ema.updates = start_epoch * nb // accumulate  # set EMA updates
+        testloader = create_dataloader(test_path, imgsz_test, total_batch_size, gs, opt,  # testloader
+                                    hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True,
+                                    rank=-1, world_size=opt.world_size, workers=opt.workers, pad=0.5)[0]
+
+        if not opt.resume:
+            labels = np.concatenate(dataset.labels, 0)
+            c = torch.tensor(labels[:, 0])  # classes
+            # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
+            # model._initialize_biases(cf.to(device))
+            if plots:
+                plot_labels(labels, save_dir, loggers)
+                if tb_writer:
+                    tb_writer.add_histogram('classes', c, 0)
+
+            # Anchors
+            if not opt.noautoanchor:
+                check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
     
     # Model parameters
     hyp['cls'] *= nc / 80.  # scale coco-tuned hyp['cls'] to current dataset
@@ -191,12 +221,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     model.gr = 1.0  # iou loss ratio (obj_loss = 1.0 or iou)
     
     model.names = names
-
-    dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
-                                                hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
-                                                world_size=opt.world_size, workers=opt.workers,
-                                                image_weights=opt.image_weights)
-    nb = len(dataloader)  # number of batches
+    model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
     
     # Start training
     t0 = time.time()
@@ -210,38 +235,6 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 'Using %g dataloader workers\nLogging results to %s\n'
                 'Starting training for %g epochs...' % (imgsz, imgsz_test, dataloader.num_workers, save_dir, epochs))
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        # Trainloader
-        imgsz = random.choice([480, 640, 720, 1080])  # imgsz = random.choice([320, 384, 448, 512, 608, 640, 720, 768, 896, 1080])
-        dataloader, dataset = create_dataloader(train_path, imgsz, batch_size, gs, opt,
-                                                hyp=hyp, augment=True, cache=opt.cache_images, rect=opt.rect, rank=rank,
-                                                world_size=opt.world_size, workers=opt.workers,
-                                                image_weights=opt.image_weights)
-        mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
-        nb = len(dataloader)  # number of batches
-        assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
-
-        # Process 0
-        if rank in [-1, 0]:
-            ema.updates = start_epoch * nb // accumulate  # set EMA updates
-            testloader = create_dataloader(test_path, imgsz, total_batch_size, gs, opt,  # testloader
-                                        hyp=hyp, cache=opt.cache_images and not opt.notest, rect=True,
-                                        rank=-1, world_size=opt.world_size, workers=opt.workers, pad=0.5)[0]
-
-            if not opt.resume:
-                labels = np.concatenate(dataset.labels, 0)
-                c = torch.tensor(labels[:, 0])  # classes
-                # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
-                # model._initialize_biases(cf.to(device))
-                if plots:
-                    plot_labels(labels, save_dir, loggers)
-                    if tb_writer:
-                        tb_writer.add_histogram('classes', c, 0)
-
-                # Anchors
-                if not opt.noautoanchor:
-                    check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
-        model.class_weights = labels_to_class_weights(dataset.labels, nc).to(device) * nc  # attach class weights
-            
         model.train()
 
         # Update image weights (optional)
@@ -337,7 +330,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         scheduler.step()
 
         # DDP process 0 or single-GPU
-        if rank in [-1, 0] and epoch > 20:
+        if rank in [-1, 0]:
             # mAP
             if ema:
                 ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride', 'class_weights'])
