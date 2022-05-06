@@ -88,7 +88,7 @@ augmenter = iaa.Sequential(
                 iaa.AverageBlur(k=(1, 2)),
                 iaa.pillike.EnhanceSharpness(),
                 iaa.MedianBlur(k=3),
-                iaa.MotionBlur([1, 2], angle=(-70, 70)),
+                # iaa.MotionBlur([1, 2], angle=(-70, 70)),
                 iaa.imgcorruptlike.DefocusBlur(severity=1)
             ]),
         ),
