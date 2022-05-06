@@ -155,12 +155,12 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
         cache_path = Path(self.label_files[0]).parent.with_suffix('.cache')  # cached labels
-        if cache_path.is_file():
-            cache = torch.load(cache_path)  # load
-            if cache['hash'] != get_hash(self.label_files + self.img_files) or 'results' not in cache:  # changed
-                cache = self.cache_labels(cache_path)  # re-cache
-        else:
-            cache = self.cache_labels(cache_path)  # cache
+        # if cache_path.is_file():
+        #     cache = torch.load(cache_path)  # load
+        #     if cache['hash'] != get_hash(self.label_files + self.img_files) or 'results' not in cache:  # changed
+        #         cache = self.cache_labels(cache_path)  # re-cache
+        # else:
+        cache = self.cache_labels(cache_path)  # cache always
 
         # Display cache
         [nf, nm, ne, nc, n] = cache.pop('results')  # found, missing, empty, corrupted, total
@@ -286,7 +286,6 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
 
     def __getitem__(self, index):
         index = self.indices[index]  # linear, shuffled, or image_weights
-
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp['mosaic']
         if mosaic:
@@ -367,6 +366,9 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
                     np.array(x[:, 14] > 0, dtype=np.int32) - 1)
 
         if self.augment:
+            # Augment colorspace
+            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+            
             bbox = labels[:,1:5]
             landmark = labels[:,5:]
             imgaug_bbox = self.parse_boundingbox(boxes = bbox, image=img)
@@ -392,9 +394,6 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
                                                  scale=hyp['scale'],
                                                  shear=hyp['shear'],
                                                  perspective=hyp['perspective'])
-
-            # Augment colorspace
-            # augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
 
             
 
@@ -603,7 +602,6 @@ def load_image(self, index):
 
 
 def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
-    print('here go: ', img.shape, ' ', img.dtype)
     r = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain] + 1  # random gains
     hue, sat, val = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
     dtype = img.dtype  # uint8
@@ -614,8 +612,6 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
 
     img_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val))).astype(dtype)
-    print('here go: ',img_hsv.shape, ' ', img.shape, ' ', img_hsv.dtype, ' ', img.dtype)
-    print('====================================')
     cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
 
 def replicate(img, labels):
