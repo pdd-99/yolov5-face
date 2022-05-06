@@ -35,19 +35,22 @@ augmenter = iaa.Sequential(
         # Brightness + Color + Contrast
         iaa.Sometimes(0.2, 
             iaa.OneOf([
-                # Brightness
-                iaa.Add(iap.Normal(iap.Choice([-10, 10]), 5)),
-                iaa.AddToBrightness((-15, 15)),
-                iaa.MultiplyBrightness((0.95, 1.05)),
-                iaa.MultiplyAndAddToBrightness(mul=(0.85, 1.05), add=(-5, 5)),
-                
+                iaa.Add(iap.Normal(iap.Choice([-25, 25]), 13)),
+                iaa.Multiply((0.75, 1.25)),
+                iaa.AddToBrightness((-30, 30)),
+                iaa.MultiplyBrightness((0.75, 1.25)),
+                iaa.MultiplyAndAddToBrightness(mul=(0.75, 1.25), add=(-20, 20)),
+                iaa.BlendAlphaHorizontalLinearGradient(iaa.Add(iap.Normal(iap.Choice([-30, 30]), 20)), start_at=(0, 0.25), end_at=(0.75, 1)),
+                iaa.BlendAlphaHorizontalLinearGradient(iaa.Add(iap.Normal(iap.Choice([-30, 30]), 20)), start_at=(0.75, 1), end_at=(0, 0.25)),
+
                 # Change contrast
-                iaa.SigmoidContrast(gain= (4, 6), cutoff=(0.5, 0.6)),
-                iaa.LinearContrast((0.5, 1.15)),
-                iaa.GammaContrast((0.5, 2)),
-                iaa.LogContrast(gain=(0.75, 1.0)),
-                iaa.pillike.Autocontrast((1, 3))
-            ]),
+                iaa.SigmoidContrast(gain=(3, 7), cutoff=(0.3, 0.6)),
+                iaa.LinearContrast((0.75, 1.25)),
+                iaa.GammaContrast((0.7, 1.5)),
+                iaa.LogContrast(gain=(0.6, 1.4)),
+                iaa.pillike.Autocontrast((2, 5)),
+                iaa.Emboss(alpha=0.5, strength=1),
+            ])    
         ),
 
         # Low resolution, compressed image
@@ -97,6 +100,9 @@ augmenter = iaa.Sequential(
             ]),
         ),
 
+        # Channel shuffle
+        iaa.ChannelShuffle(0.2),
+        iaa.Sometimes(0.05, iaa.CoarseDropout(0.1, size_percent=0.0025, per_channel=1)),
         # Temperature 
         iaa.Sometimes(0.1, iaa.Multiply((0.9, 1.1))),
     ]
