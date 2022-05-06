@@ -1,6 +1,3 @@
-torch
-torchvision
-torchaudio
 opencv-python
 tqdm
 ipdb
@@ -9,3 +6,8 @@ matplotlib
 pandas
 seaborn
 thop
+tensorboard
+tensorboardX
+imgaug==0.4.0
+pycocotools
+imagecorruptions
