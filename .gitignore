@@ -5,3 +5,4 @@ data/widerface/val
 *.cache
 __pycache__/
 runs/
+.vscode/
