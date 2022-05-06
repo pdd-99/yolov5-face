@@ -367,7 +367,8 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
 
         if self.augment:
             # Augment colorspace
-            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+            if random.uniform(0,1)<0.5:
+                augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
             
             bbox = labels[:,1:5]
             landmark = labels[:,5:]
