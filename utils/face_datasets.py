@@ -242,16 +242,14 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
                         l = np.array([x.split() for x in f.read().strip().splitlines()], dtype=np.float32)  # labels
                         
                         # Remove all the face with width and heigh < 5*5.
-                        new_l = []
-                        for j, value in enumerate(l):
-                            if value[3]< 5 and value[4]<5:
-                                new_l.append(value)
-                        if len(new_l)!=0:
-                            l = np.array(new_l)
-                        else:
-                            l = np.array([])
-
-
+                        # new_l = []
+                        # for j, value in enumerate(l):
+                        #     if value[3]< 5 and value[4]<5:
+                        #         new_l.append(value)
+                        # if len(new_l)!=0:
+                        #     l = np.array(new_l)
+                        # else:
+                        #     l = np.array([])
 
                     if len(l):
                         assert l.shape[1] == 15, 'labels require 15 columns each'
@@ -371,17 +369,17 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
         if self.augment:
             bbox = labels[:,1:5]
             landmark = labels[:,5:]
-
-            print('before yayy: ', bbox.shape, landmark.shape)
             imgaug_bbox = self.parse_boundingbox(boxes = bbox, image=img)
             imgaug_landmark = self.parse_keypoint(keypoints = landmark, image=img)
             img, boxes, landm = self.augmenter(image=img, bounding_boxes=imgaug_bbox, keypoints=imgaug_landmark)
 
-            boxes = self.decode_boundingbox(boxes)
-            landm = self.decode_landmark(landm)
-            print('after yayy: ', boxes.shape, landm.shape)
-            print('==============================================')
-            box_vs_landm = np.concatenate((boxes, landm), axis=1)
+            bboxes = self.decode_boundingbox(boxes)
+            landmarkes = self.decode_landmark(landm)
+            if len(bboxes) == 0:
+                bboxes = np.zeros((0,4), dtype=np.float32)
+            if len(landmarkes) == 0:
+                landmarkes = np.zeros((0,10), dtype=np.float32)
+            box_vs_landm = np.concatenate((bboxes, landmarkes), axis=1)
             real_label = np.zeros_like(labels, dtype = np.float32)
             real_label[:,0] = labels[:,0]
             real_label[:,1:] = box_vs_landm
