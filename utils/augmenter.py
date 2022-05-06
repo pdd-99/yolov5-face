@@ -18,6 +18,11 @@ augmenter = iaa.Sequential(
             ])
         ),
 
+        # Random crop max 10pixel to the original image
+        iaa.Sometimes(0.3,
+            iaa.CropAndPad(px=((0, 10), (0, 10), (0, 10), (0, 10)))
+    ),
+
         # iaa.Sometimes(0.3,
         #     iaa.Resize({"shorter-side": (480, 1080), "longer-side": "keep-aspect-ratio"}, interpolation=["linear", "cubic", "nearest", "area"])
         # ),
@@ -53,15 +58,15 @@ augmenter = iaa.Sequential(
             ])    
         ),
 
-        # Low resolution, compressed image
-        iaa.Sometimes(0.15, 
-            iaa.OneOf([
-                iaa.imgcorruptlike.Pixelate(severity=(2, 4)),
-                iaa.imgcorruptlike.JpegCompression(severity=(1, 2)),
-                iaa.KMeansColorQuantization(n_colors=(230, 256)),
-                iaa.UniformColorQuantization(n_colors=(30, 256)),
-            ])
-        ),
+        # # Low resolution, compressed image
+        # iaa.Sometimes(0.15, 
+        #     iaa.OneOf([
+        #         iaa.imgcorruptlike.Pixelate(severity=(2, 4)),
+        #         iaa.imgcorruptlike.JpegCompression(severity=(1, 2)),
+        #         iaa.KMeansColorQuantization(n_colors=(230, 256)),
+        #         iaa.UniformColorQuantization(n_colors=(30, 256)),
+        #     ])
+        # ),
 
         # Low light condition
         iaa.Sometimes(0.18, 
@@ -76,16 +81,15 @@ augmenter = iaa.Sequential(
             ])
         ),
 
-        # Normal blur
+        # slightly blur augment
         iaa.Sometimes(0.1,
             iaa.OneOf([
                 iaa.GaussianBlur((1, 2)),
-                iaa.AverageBlur(k=(2, 5)),
+                iaa.AverageBlur(k=(1, 2)),
                 iaa.pillike.EnhanceSharpness(),
-                iaa.pillike.FilterSmoothMore((10, 200)),
                 iaa.MedianBlur(k=3),
-                iaa.MotionBlur([3, 7], angle=(-70, 70)),
-                iaa.imgcorruptlike.DefocusBlur(severity=(1, 2))
+                iaa.MotionBlur([1, 2], angle=(-70, 70)),
+                iaa.imgcorruptlike.DefocusBlur(severity=1)
             ]),
         ),
         
