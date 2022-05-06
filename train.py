@@ -468,7 +468,7 @@ if __name__ == '__main__':
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--project_name', default='face_detection', help='name of the project')
-    parser.add_argument('--task_name', action='yolov5_face_add_augment', help='clearml task name')
+    parser.add_argument('--task_name', default='yolov5_face_add_augment', help='clearml task name')
     opt = parser.parse_args()
     task = Task.init(project_name=opt.project_name, task_name=opt.task_name)
     # Set DDP variables
