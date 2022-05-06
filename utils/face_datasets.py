@@ -3,6 +3,7 @@ import logging
 import math
 import os
 import random
+import re
 import shutil
 import time
 from itertools import repeat
@@ -242,10 +243,14 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
                         
                         # Remove all the face with width and heigh < 5*5.
                         new_l = []
-                        for j, x in enumerate(l):
-                            if x[3]< 5 and x[4]<5:
-                                new_l.append(x)
-                        l = np.array(new_l)
+                        for j, value in enumerate(l):
+                            if value[3]< 5 and value[4]<5:
+                                new_l.append(value)
+                        if len(new_l)!=0:
+                            l = np.array(new_l)
+                        else:
+                            l = np.array([])
+
 
 
                     if len(l):
@@ -269,8 +274,10 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
 
         if nf == 0:
             print(f'WARNING: No labels found in {path}. See {help_url}')
-
-        x['hash'] = get_hash(self.label_files + self.img_files)
+        try:
+            x['hash'] = get_hash(self.label_files + self.img_files)
+        except:
+            import ipdb; ipdb.set_trace()
         x['results'] = [nf, nm, ne, nc, i + 1]
         torch.save(x, path)  # save for next time
         logging.info(f"New cache created: {path}")
@@ -364,14 +371,21 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
         if self.augment:
             bbox = labels[:,1:5]
             landmark = labels[:,5:]
+
+            print('before yayy: ', bbox.shape, landmark.shape)
             imgaug_bbox = self.parse_boundingbox(boxes = bbox, image=img)
             imgaug_landmark = self.parse_keypoint(keypoints = landmark, image=img)
             img, boxes, landm = self.augmenter(image=img, bounding_boxes=imgaug_bbox, keypoints=imgaug_landmark)
 
             boxes = self.decode_boundingbox(boxes)
             landm = self.decode_landmark(landm)
-            labels = np.concatenate((labels[:,0:1], boxes, landm), axis=1)
-
+            print('after yayy: ', boxes.shape, landm.shape)
+            print('==============================================')
+            box_vs_landm = np.concatenate((boxes, landm), axis=1)
+            real_label = np.zeros_like(labels, dtype = np.float32)
+            real_label[:,0] = labels[:,0]
+            real_label[:,1:] = box_vs_landm
+            labels = real_label
             # Augment imagespace
             if not mosaic:
                 img, labels = random_perspective(img, labels,
@@ -382,7 +396,7 @@ class LoadFaceImagesAndLabels(Dataset):  # for training/testing
                                                  perspective=hyp['perspective'])
 
             # Augment colorspace
-            augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
+            # augment_hsv(img, hgain=hyp['hsv_h'], sgain=hyp['hsv_s'], vgain=hyp['hsv_v'])
 
             
 
@@ -591,6 +605,7 @@ def load_image(self, index):
 
 
 def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
+    print('here go: ', img.shape, ' ', img.dtype)
     r = np.random.uniform(-1, 1, 3) * [hgain, sgain, vgain] + 1  # random gains
     hue, sat, val = cv2.split(cv2.cvtColor(img, cv2.COLOR_BGR2HSV))
     dtype = img.dtype  # uint8
@@ -601,6 +616,8 @@ def augment_hsv(img, hgain=0.5, sgain=0.5, vgain=0.5):
     lut_val = np.clip(x * r[2], 0, 255).astype(dtype)
 
     img_hsv = cv2.merge((cv2.LUT(hue, lut_hue), cv2.LUT(sat, lut_sat), cv2.LUT(val, lut_val))).astype(dtype)
+    print('here go: ',img_hsv.shape, ' ', img.shape, ' ', img_hsv.dtype, ' ', img.dtype)
+    print('====================================')
     cv2.cvtColor(img_hsv, cv2.COLOR_HSV2BGR, dst=img)  # no return needed
 
 def replicate(img, labels):
