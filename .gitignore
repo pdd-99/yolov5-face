@@ -1,1 +1,5 @@
 */__pycache__
+./face_detect_failcases/*
+./data/widerface/train/*
+./data/widerface/val/*
+*.cache
