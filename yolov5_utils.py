@@ -1,5 +1,3 @@
-import os
-
 import cv2
 import numpy as np
 import torch
@@ -83,30 +81,41 @@ def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
     clip_coords(coords, img0_shape)
     return coords
 
-def img_vis(preprocessed_imgs,original_imgs,pred, save_path=None):
+def map_prediction_result_to_original(preprocessed_imgs, original_imgs, pred):
     # Process detections
     img = preprocessed_imgs
+    processed_pred = []
     for i, det in enumerate(pred):  # detections per image
-        det = det.cpu()
         orgimg = original_imgs[i]
-        gn = torch.tensor(orgimg.shape)[[1, 0, 1, 0]]  # normalization gain whwh
-        gn_lks = torch.tensor(orgimg.shape)[[1, 0, 1, 0, 1, 0, 1, 0, 1, 0]]  # normalization gain landmarks
         if len(det):
             # Rescale boxes from img_size to im0 size
             det[:, :4] = scale_coords(img.shape[2:], det[:, :4], orgimg.shape).round()
-
             det[:, 5:15] = scale_coords_landmarks(img.shape[2:], det[:, 5:15], orgimg.shape).round()
+        processed_pred.append(det)
+    return processed_pred
 
-            for j in range(det.size()[0]):
-                
-                xywh = (xyxy2xywh(det[j, :4].view(1, 4)) / gn).view(-1).tolist()
-                conf = det[j, 4].cpu().numpy()
-                landmarks = (det[j, 5:15].view(1, 10) / gn_lks).view(-1).tolist()
-                class_num = det[j, 15].cpu().numpy()
-                orgimg = show_results(orgimg, xywh, conf, landmarks, class_num)
-
-        if save_path is not None:
-            cv2.imwrite(os.path.join(save_path, f"yolov5_prediction_{i}.jpg"), orgimg)
+def img_vis(img, pred, threshold=0.5):
+    boxes = pred[:,:4]
+    confs = pred[:,4]
+    landmarks = pred[:,5:]
+    for i in range(len(boxes)):
+        if confs[i] > threshold:
+            img = cv2.rectangle(
+                img, 
+                (int(boxes[i][0]), int(boxes[i][1])), 
+                (int(boxes[i][2]), int(boxes[i][3])), 
+                (0, 255, 0), 
+                2
+            )
+            for j in range(5):
+                img = cv2.circle(
+                    img, 
+                    (int(landmarks[i][2*j]), int(landmarks[i][2*j+1])), 
+                    2, 
+                    (0, 255, 0), 
+                    -1
+                )
+    return img
 
 def xywh2xyxy(x):
     # Convert nx4 boxes from [x, y, w, h] to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
