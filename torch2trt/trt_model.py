@@ -2,13 +2,14 @@ import pycuda.autoinit
 import pycuda.driver as cuda
 import tensorrt as trt
 import numpy as np
+from yaml import serialize
 
 EXPLICIT_BATCH = 1 << (int)(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 def GiB(val):
     return val * 1 << 30
 
-def ONNX_to_TRT(onnx_model_path=None,trt_engine_path=None,fp16_mode=False):
+def ONNX_to_TRT(onnx_model_path=None,trt_engine_path=None,fp16_mode=False, batch_size=1):
     """
     仅适用TensorRT V8版本
     生成cudaEngine，并保存引擎文件(仅支持固定输入尺度)  
@@ -27,11 +28,18 @@ def ONNX_to_TRT(onnx_model_path=None,trt_engine_path=None,fp16_mode=False):
         config.set_flag(trt.BuilderFlag.FP16) 
     with open(onnx_model_path, 'rb') as model:
         assert parser.parse(model.read())
-        serialized_engine=builder.build_serialized_network(network, config)
-
+        profile = builder.create_optimization_profile()
+        profile.set_shape("input", min=(batch_size, 3, 640, 640), opt=(batch_size, 3, 640, 640), max=(batch_size, 3, 640, 640))
+        config.add_optimization_profile(profile)
+        builder.max_batch_size = batch_size
+        builder.max_batch_size = batch_size
+        serialized_engine = builder.build_serialized_network(network, config)
+        # engine = builder.build_engine(network, config)
+        # serialized_engine = engine.serialize()
    
     with open(trt_engine_path, 'wb') as f:
         f.write(serialized_engine)  # 序列化
+
 
     print('TensorRT file in ' + trt_engine_path)
     print('============ONNX->TensorRT SUCCESS============')
@@ -104,6 +112,7 @@ class TrtModel():
         cuda_outputs = self.cuda_outputs
         bindings = self.bindings
 
+        # input = np.stack([img_np_nchw[0]]*4)
         np.copyto(host_inputs[0], img_np_nchw.ravel())
         cuda.memcpy_htod_async(cuda_inputs[0], host_inputs[0], stream)
         context.execute_async(batch_size=self.batch_size, bindings=bindings, stream_handle=stream.handle)

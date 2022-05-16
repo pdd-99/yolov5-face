@@ -78,12 +78,19 @@ if __name__ == '__main__':
     model.fuse()  # only for ONNX
     input_names=['input']
     output_names=['output']
-    torch.onnx.export(model, img, f, verbose=False, opset_version=12, 
+    torch.onnx.export(model, img, f, verbose=True, opset_version=11, 
         input_names=input_names,
         output_names=output_names,
-        dynamic_axes = {'input': {0: 'batch'},
-                        'output': {0: 'batch'}
-                        } if opt.dynamic else None)
+        dynamic_axes = {
+            'input': {
+                0: 'batch',
+                1: 'channel',
+                2: 'height',
+                3: 'width'
+            },
+            'output': {
+                0: 'batch'}
+            } if opt.dynamic else None)
 
     # Checks
     onnx_model = onnx.load(f)  # load onnx model
@@ -123,7 +130,7 @@ if __name__ == '__main__':
     if opt.onnx2trt:
         from torch2trt.trt_model import ONNX_to_TRT
         print('\nStarting TensorRT...')
-        ONNX_to_TRT(onnx_model_path=f,trt_engine_path=f.replace('.onnx', '.trt'),fp16_mode=opt.fp16_trt)
+        ONNX_to_TRT(onnx_model_path=f,trt_engine_path=f.replace('.onnx', '.trt'),fp16_mode=opt.fp16_trt, batch_size=opt.batch_size)
 
     # PB export
     if opt.onnx2pb:
