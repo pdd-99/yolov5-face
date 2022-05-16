@@ -14,6 +14,7 @@ from utils.general import check_img_size, non_max_suppression_face, apply_classi
     strip_optimizer, set_logging, increment_path
 from utils.plots import plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized
+import imgaug.augmenters as iaa
 
 def load_model(weights, device):
     model = attempt_load(weights, map_location=device)  # load FP32 model
@@ -147,9 +148,9 @@ def preprocess_batch(images,
                            :image_width] = resized_image
         return batched_tensor, all_scale
 
-def detect_one(model, orgimg, device):
+def detect_one(model, orgimg, device, target_size=480):
     # Load model
-    img_size = 1920
+    img_size = target_size
     conf_thres = 0.3
     iou_thres = 0.5
 
@@ -180,13 +181,11 @@ def detect_one(model, orgimg, device):
     # t1 = time_synchronized()
     t0 = time.time()
     pred = model(img)[0]
-    print(time.time()-t0)
+    print(f"Single inference time: {(time.time()-t0)*1000:.2f}ms")
     t0= time.time()
     # Apply NMS
     pred = non_max_suppression_face(pred, conf_thres, iou_thres)
-    print(time.time()-t0)
-    print('img.shape: ', img.shape)
-    print('orgimg.shape: ', orgimg.shape)
+    print(f"Single postprocessing time: {(time.time()-t0)*1000:.2f}ms")
 
     # Process detections
     for i, det in enumerate(pred):  # detections per image
@@ -212,8 +211,8 @@ def detect_one(model, orgimg, device):
     return orgimg
 
 def detect_batch(model,
-                list_image, device):
-    img_size = 1920
+                list_image, device, target_size=640):
+    img_size = target_size
     conf_thres = 0.3
     iou_thres = 0.5
 
@@ -221,12 +220,18 @@ def detect_batch(model,
     for image in list_image:
         output_list.append(torch.tensor(image))
     
+    st = time.time()
     batched_tensor, all_scale = preprocess_batch(output_list, img_size, device)
+    print(f"Preprocess time: {(time.time()-st)*1000:.2f}ms")
 
+    st = time.time()
     pred = model(batched_tensor)[0]
+    print(f"Inference time: {(time.time()-st)*1000:.2f}ms")
 
+    st = time.time()
     pred = non_max_suppression_face(pred, conf_thres, iou_thres)
-    # import ipdb; ipdb.set_trace()
+    print(f"Postprocess time: {(time.time()-st)*1000:.2f}ms")
+    
     output_list = []
     for i, image in enumerate(list_image):  # detections per image
         det = pred[i]
@@ -241,31 +246,49 @@ def detect_batch(model,
             for k in range(0,10,2):
                 cv2.circle(image, (int(landmarks[k]),int(landmarks[k+1])), 1, (0,0,255), 2)
             # class_num = det[j, 15].cpu().numpy()
-            # import ipdb; ipdb.set_trace()
-        cv2.imwrite(f'./DEBUG/{time.time()}.jpg', image)
+        cv2.imwrite(f'./debug/{i}.jpg', image)
         output_list.append(image)
 
     return output_list
 
+seq = iaa.Sequential([
+    iaa.Fliplr(0.5), # horizontal flips
+    # Small gaussian blur with random sigma between 0 and 0.5.
+    # But we only blur about 50% of all images.
+    iaa.Sometimes(
+        0.5,
+        iaa.GaussianBlur(sigma=(0, 0.5))
+    ),
+    # Strengthen or weaken the contrast in each image.
+    iaa.LinearContrast((0.75, 1.5)),
+    # Add gaussian noise.
+    # For 50% of all images, we sample the noise once per pixel.
+    # For the other 50% of all images, we sample the noise per pixel AND
+    # channel. This can change the color (not only brightness) of the
+    # pixels.
+    iaa.AdditiveGaussianNoise(loc=0, scale=(0.0, 0.05*255), per_channel=0.5),
+    # Make some images brighter and some darker.
+    # In 20% of all cases, we sample the multiplier once per channel,
+    # which can end up changing the color of the images.
+    iaa.Multiply((0.8, 1.2), per_channel=0.2),
+], random_order=True) # apply augmenters in random order
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default='/mnt/ssd/miles/face_detection/gen_data/weight/yolov5n-0.5.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', nargs='+', type=str, default='yolov5n-0.5.pt', help='model.pt path(s)')
     parser.add_argument('--image', type=str, default='data/images/test.jpg', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
     opt = parser.parse_args()
-    print(opt)
-    device = torch.device('cpu')
+    device = torch.device('cuda')
     model = load_model(opt.weights, device)
-    import glob
-    all_image_path = glob.glob('/Users/miles/Downloads/UFDD/UFDD_val/images/*/*.jpg')
-    n= len(all_image_path)
-    list_batch = []
-    output_list =[]
-    import tqdm
 
-    all_image_path = ['/mnt/ssd/miles/face_detection/yolov5-face/data/images/test.jpg']
-    for path in tqdm.tqdm(all_image_path):
-        image = cv2.imread(path)
-        output_list = detect_batch(model,[image], device)
-        # for image in output_list:
-        #     cv2.imwrite(f'./DEBUG/{time.time()}.jpg', image)
+    path = "/home/yolov5-face/data/images/test.jpg"
+    # path = "data/images/zidane.jpg"
+    image = cv2.imread(path)
+    # for _ in range(10):
+    list_image = seq(images=[image]*4)
+    list_image = [image]
+    output_list = detect_batch(model,list_image, device, target_size=640)
+    # for i, image in enumerate(output_list):
+    #     cv2.imwrite(f'./debug/{i}.jpg', image)
+    print(f"#"*15)
